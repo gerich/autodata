@@ -30,6 +30,7 @@ class StepByStepSpider(Spider):
         self.marks = []
         self.models = []
         self.engine_codes = []
+        self.options = []
         super(StepByStepSpider, self).__init__()
 
     def __prepare_request(self, request):
@@ -38,7 +39,7 @@ class StepByStepSpider(Spider):
         request.cookies['ad_web_i_36322E37362E31332E313331'] = '0'
         request.cookies['has_js'] = '1'
         # request.cookies['__qca'] = 'P0-1677323104-1468405118825'
-        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'NBL7XwCsyAijyrUOtcd9pZVFiCxBYh48xOcI0pOiwnY'
+        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'MAYQwWiNRSpAaOrfGWY4XkKigIpSDwSMiO3ne2tPEHg'
         # request.dont_filter = True
 
     def make_requests_from_url(self, url):
@@ -48,6 +49,9 @@ class StepByStepSpider(Spider):
 
     def parse(self, response):
         marks = Selector(response).xpath('//ul[@id="all-manufacturers-list"]/li')
+        if not marks:
+            raise EOFError('Сессионная кука не верна')
+
         marks = [marks[2]] + [marks[5]] + [marks[18]] # @todo
 
         for mark in marks:
@@ -59,70 +63,84 @@ class StepByStepSpider(Spider):
             yield item
             self.marks.append(item)
             
-        self.going_to_root()
+        yield self.__root_request()
 
-    def __model_request(self, mark):
-        url = self.start_urls[0] + 'ajax/' + mark['link']
+    def __model_request(self, mark = None):
+        if not self.marks: 
+            raise CloseSpider('Завершено')
+
+        if not mark:
+            mark = self.marks.pop()
+            url = self.start_urls[0] + 'ajax/' + mark['link']
         request = self.make_requests_from_url(url)
         request.callback = self.parse_models
         request.meta['mark'] = dict(mark)
 
         return request
-
-    def going_to_root(self, response = None):
+    
+    def __root_request(self):
         request = self.make_requests_from_url('https://' + self.allowed_domains[0])
         request.callback = self.going_to_mark
+        
+        return request
 
-        yield request
+    def going_to_root(self, response):
+        yield self.__root_request()
 
+    def __mark_select_request(self):
+        if not self.models:
+            request = self.make_requests_from_url(self.start_urls[0])
+            request.callback = self.going_to_model_select
+
+            return request
+        " @stop
+           
     def going_to_mark(self, response):
-        if not self.marks: 
-            return
+        yield self.__mark_select_request()
 
-        mark = self.marks.pop()
-        request = self.__mark_request(mark)
-
-        yield request
+    def going_to_model_select(self, response):
+        yield self.__model_request()
         
     def parse_models(self, response):
-        json_response = json.loads(response.body_as_unicode())
         mark = response.meta['mark']
-        html = ''
-        for data in json_response:
-            if (type(data) is not dict
-                or 'command' not in data
-                or 'method' not in data
-                or data['command'] != 'insert'
-                or data['method'] != 'replaceWith'):
-                continue               
-            html = data['data']
+        if not self.models:
+            json_response = json.loads(response.body_as_unicode())
+            html = ''
+            for data in json_response:
+                if (type(data) is not dict
+                    or 'command' not in data
+                    or 'method' not in data
+                    or data['command'] != 'insert'
+                    or data['method'] != 'replaceWith'):
+                    continue               
+                html = data['data']
+                
+            if not html:
+                yield
             
-        if not html:
-            yield
-        
-        models = Selector(text=html).xpath('//ul[@id="all-model-ranges-list"]/li')
-        mark_link = response.url.split('/')[-1]
-        models = models[:10] # @todo
-        
-        for model in models:
-            model_family_id = model.xpath('@model_family_id').extract()[0]
-            name = model.xpath('a/text()').extract()[0].strip()
-            start_year, end_year, chassi_code = helper.extract_years_and_chassi_code(model)
-            item = ModelItem(name=name, start_year=start_year,
-                    end_year=end_year, model_family_id=model_family_id,
-                    mark_link=mark_link, chassi_code=chassi_code)
+            models = Selector(text=html).xpath('//ul[@id="all-model-ranges-list"]/li')
+            mark_link = response.url.split('/')[-1]
+            models = models[:10] # @todo
+            
+            for model in models:
+                model_family_id = model.xpath('@model_family_id').extract()[0]
+                name = model.xpath('a/text()').extract()[0].strip()
+                start_year, end_year, chassi_code = helper.extract_years_and_chassi_code(model)
+                item = ModelItem(name=name, start_year=start_year,
+                        end_year=end_year, model_family_id=model_family_id,
+                        mark_link=mark_link, chassi_code=chassi_code)
 
-            self.db.save_model(item)
-        
-            yield item
-            self.models.append(item)
+                self.db.save_model(item)
+            
+                yield item
+                self.models.append(item)
     
-        # yield self.__prepare_model_menu_request(mark)
+        yield self.__prepare_model_menu_request(mark)
 
     def __prepare_model_menu_request(self, mark):
         if not self.models:
             return
-
+        
         item = self.models.pop()
         request = FormRequest(
             url = self.start_urls[0],
@@ -155,15 +173,17 @@ class StepByStepSpider(Spider):
         url = 'https://' + self.allowed_domains[0] + path
         time_works_link = Selector(response).xpath('//a[@href="' + path + '"]')
         
-        # Если нет данных по этой модели
         if not time_works_link:
-            yield 
-        
-        request = self.make_requests_from_url(url)
+            # Если нет данных по этой модели
+            request = self.__mark_select_request()
+        else:
+            # Если есть то идем дальше
+            request = self.make_requests_from_url(url)
+            request.callback = self.parse_engines
+
         request.meta['mark'] = mark
         request.meta['model'] = model
-        request.priority = 20
-        request.callback = self.parse_engines
+
         yield request
 
     def parse_engines(self, response):
@@ -189,11 +209,13 @@ class StepByStepSpider(Spider):
         
                 if item:
                     self.db.save_engine_code(item)
+                    self.engine_codes.append(item)
                     yield item
                 
-                request = self.__make_request_for_engine_code(dict(item), response.url)
-                if request:
-                    yield request
+
+        request = self.__make_request_for_engine_code(dict(item), response.url)
+        if request:
+            yield request
 
         request = self.__prepare_model_menu_request(mark)
         if request:
