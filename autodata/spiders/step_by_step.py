@@ -39,7 +39,7 @@ class StepByStepSpider(Spider):
         request.cookies['ad_web_i_36322E37362E31332E313331'] = '0'
         request.cookies['has_js'] = '1'
         # request.cookies['__qca'] = 'P0-1677323104-1468405118825'
-        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'MAYQwWiNRSpAaOrfGWY4XkKigIpSDwSMiO3ne2tPEHg'
+        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'ya1_r1F2cY4E_5AMBe4XGRo6_QaA3XfyV6llFrtLYT4'
         # request.dont_filter = True
 
     def make_requests_from_url(self, url):
@@ -66,12 +66,16 @@ class StepByStepSpider(Spider):
         yield self.__root_request()
 
     def __model_request(self, mark = None):
+        """
+        Если нет текущей марки то берем из списка марок
+        Если список марок пуст то останов
+        """
         if not self.marks: 
             raise CloseSpider('Завершено')
 
         if not mark:
             mark = self.marks.pop()
-            url = self.start_urls[0] + 'ajax/' + mark['link']
+        url = self.start_urls[0] + 'ajax/' + mark['link']
         request = self.make_requests_from_url(url)
         request.callback = self.parse_models
         request.meta['mark'] = dict(mark)
@@ -88,18 +92,21 @@ class StepByStepSpider(Spider):
         yield self.__root_request()
 
     def __mark_select_request(self):
-        if not self.models:
-            request = self.make_requests_from_url(self.start_urls[0])
-            request.callback = self.going_to_model_select
+        request = self.make_requests_from_url(self.start_urls[0])
+        request.callback = self.going_to_model_select
 
-            return request
-        " @stop
-           
+        return request
+
     def going_to_mark(self, response):
         yield self.__mark_select_request()
 
     def going_to_model_select(self, response):
-        yield self.__model_request()
+        # если есть марка значит пришли парсин моделей текуще марки не закончен
+        mark = None
+        if 'mark' in response.meta:
+            mark = response.meta['mark']
+
+        yield self.__model_request(mark)
         
     def parse_models(self, response):
         mark = response.meta['mark']
@@ -158,7 +165,8 @@ class StepByStepSpider(Spider):
             meta = {
                 'mark': mark,
                 'model': dict(item),
-            }
+            },
+            dont_filter = True
         )
         self.__prepare_request(request)
         return request
@@ -206,19 +214,20 @@ class StepByStepSpider(Spider):
             
             for code in engine_codes:
                 item = helper.make_engine_code_item(code, engine_item)
-        
+
                 if item:
                     self.db.save_engine_code(item)
                     self.engine_codes.append(item)
                     yield item
                 
-
+            
         request = self.__make_request_for_engine_code(dict(item), response.url)
         if request:
             yield request
 
-        request = self.__prepare_model_menu_request(mark)
+        request = self.__mark_select_request()
         if request:
+            request.meta['mark'] = mark
             yield request
 
     def __make_request_for_engine_code(self, code_item, url):

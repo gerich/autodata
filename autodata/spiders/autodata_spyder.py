@@ -35,7 +35,7 @@ class AutodataSpyderSpider(Spider):
         request.cookies['ad_web_i_36322E37362E31332E313331'] = '0'
         request.cookies['has_js'] = '1'
         # request.cookies['__qca'] = 'P0-1677323104-1468405118825'
-        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'NBL7XwCsyAijyrUOtcd9pZVFiCxBYh48xOcI0pOiwnY'
+        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'ya1_r1F2cY4E_5AMBe4XGRo6_QaA3XfyV6llFrtLYT4'
         # request.dont_filter = True
 
     def make_requests_from_url(self, url):
@@ -153,7 +153,8 @@ class AutodataSpyderSpider(Spider):
                 'mark': mark,
                 'model': dict(item),
                 'models': models
-            }
+            },
+            dont_filter = True
         )
         self.__prepare_request(request)
         return request
