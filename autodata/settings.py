@@ -14,6 +14,7 @@ MONGODB_SERVER = 'localhost'
 MONGODB_PORT = 27017
 MONGODB_DB = 'autodata'
 MONGODB_COLLECTION = 'marks'
+MONGODB_WORKS_COLLECTION = 'works'
 
 BOT_NAME = 'autodata'
 

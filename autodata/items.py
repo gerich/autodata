@@ -23,6 +23,11 @@ class ModelItem(Item):
 
 class EngineItem(Item):
     engine_name = Field() # id кодов двигателя
+    fuel = Field()
+    litres = Field()
+    link = Field()
+    text = Field()
+    vehicletype = Field()
     model_family_id = Field() # parent
 
 class EngineCodeItem(EngineItem):
@@ -34,11 +39,13 @@ class EngineCodeItem(EngineItem):
     param = Field()
     mecnid = Field() # id
 
-class CarFeatureItem(Item):
+class CarOptionItem(Item):
     name = Field()
     mecnid = Field() # parent
+    engine_name = Field() # parnet
     model_family_id = Field() # parent
     item_id = Field() # id
+    link = Field()
 
 # то что ниже для конкретной страницы с работами и нормочасами
 class CarComponentItem(Item):
@@ -50,7 +57,7 @@ class WorkGroupItem(Item):
 
 class WorkItem(Item):
     name = Field() # id
-    hours = Field()
+    time = Field()
     type = Field()
 
 class SubWorkItem(Item):
