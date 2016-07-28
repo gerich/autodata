@@ -31,12 +31,12 @@ class WorkingSpider(Spider):
         super(WorkingSpider, self).__init__()
 
     def __prepare_request(self, request):
-        request.cookies['ad_web_g_333238303433'] = '0'
-        request.cookies['ad_web_u_6C69686F6C65746F762D763530'] = '0'
+        request.cookies['ad_web_g_333336303139'] = '0'
+        request.cookies['ad_web_u_67656E6572616C6F762E616C6578616E64722E612D707666'] = '0'
         request.cookies['ad_web_i_36322E37362E31332E313331'] = '0'
         request.cookies['has_js'] = '1'
         # request.cookies['__qca'] = 'P0-1677323104-1468405118825'
-        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'AL-nMm5do9S3haav2AxcmPI8pGcN45H98q-hFbvuhMY'
+        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'T5eR4BjfEfcjkOMEwV2zFOk1qaimbkA9vRsvUtg3SEc'
         request.dont_filter = True
 
     def make_requests_from_url(self, url):
@@ -51,26 +51,27 @@ class WorkingSpider(Spider):
         # marks = [marks[2]] + [marks[5]] + [marks[18]] # @TODO
         marks = [marks[18]] # @TODO
 
+        exists = True
         for mark in marks:
-            link = mark.xpath('@manufacturer_id').extract()[0]
-            if not self.db.mark_exists(link):
-                item = MarkItem()
-                item['link'] = link
-                a = mark.xpath('a')
-                item['name'] = a.xpath('text()').extract()[0].strip()
-
+            item = helper.make_mark_item(mark)
+            exists = self.db.mark_exists(item['link'])
+            if not exists:
                 self.db.save_mark(item)
                 yield item
                 
-                url = self.start_urls[0] + 'ajax/' + item['link']
-                request = self.make_requests_from_url(url)
-                request.callback = self.parse_models
-                request.method = 'POST'
-                request.meta['mark'] = dict(item)
+                request = self.__model_request(item)
                 yield request
                 break
                 
-    
+    def __model_request(self, item):
+        url = self.start_urls[0] + 'ajax/' + item['link']
+        request = self.make_requests_from_url(url)
+        request.callback = self.parse_models
+        request.method = 'POST'
+        request.meta['mark'] = item
+
+        return request
+
     def parse_models(self, response):
         json_response = json.loads(response.body_as_unicode())
         mark = response.meta['mark']
@@ -153,8 +154,8 @@ class WorkingSpider(Spider):
 
     def parse_engine_series(self, response):
         selector = Selector(response)
+        engines = selector.xpath('//ul[@id="engine-model-list "]/li/a')
         engines = engines[0:1] # TODO
-
         item = None
         for engine in engines:
             engine_item = helper.make_engine_series(engine)
@@ -213,8 +214,8 @@ class WorkingSpider(Spider):
         for code in engine_codes[0:1]: # TODO
             item, disabled = helper.make_engine_code_item(code, series)
             exists = self.db.engine_code_exists(
-                series['link'],
-                series['engine_name'],
+                item['model_family_id'],
+                item['engine_name'],
                 item['mecnid']
             )
             if not exists:
@@ -232,8 +233,8 @@ class WorkingSpider(Spider):
                 break
 
         if exists:
-            
-            
+            request = self.make_requests_from_url(self.start_urls[0])
+            yield request
                 
     def __options_request(self, code):
         url = 'https://workshop.autodata-group.com/engine-code-form-api'

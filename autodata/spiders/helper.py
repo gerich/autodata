@@ -114,3 +114,11 @@ def make_car_option_item(engine, id = None, name = None):
         item['name'] = name
 
     return item
+
+def make_mark_item(selector):
+    link = selector.xpath('@manufacturer_id').extract()[0]
+    item = MarkItem()
+    item['link'] = link
+    a = selector.xpath('a')
+    item['name'] = a.xpath('text()').extract()[0].strip()
+    return item
