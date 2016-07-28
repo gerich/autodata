@@ -306,7 +306,7 @@ class WorkingSpider(Spider):
                     break
 
             if exists: # STOP
-                item = CarOptionItem(code)
+                item = CarOptionItem(enigne)
                 self.save_option(item)
         else:
             # страница нормочасов
