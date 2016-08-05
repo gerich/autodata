@@ -32,18 +32,26 @@ class Db(object):
 
     def save_model(self, item):
         item = dict(item)
-        id = item['model_family_id']
-        del item['model_family_id']
+        mark = item['mark_link']
+        if 'model_family_id' in item:
+            id = item['model_family_id']
+            del item['model_family_id']
+        else:
+            id = self.ALL_MARKER
+            item = {}
+
         result = self.collection.update_one(
-            {'link': item['mark_link']},
+            {'link': mark},
             {'$set': {'models.' + id: item}}
         )
         return self.__update_result(result)
 
     def save_engine_series(self, item):
-        engine_id = item['engine_name']
         model_id = item['model_family_id']
-
+        if 'engine_name' in item:
+            engine_id = item['engine_name']
+        else:
+            engine_id = self.ALL_MARKER
         selector = "models.{0}".format(model_id)
         update =  "{0}.engines.{1}".format(selector, engine_id)
         result = self.collection.update_one(
@@ -60,10 +68,14 @@ class Db(object):
         item = dict(item)
         engine_id = item['engine_name']
         model_id = item['model_family_id']
-        engine_code_id = item['mecnid']
-        del item['engine_name']
-        del item['model_family_id']
-        del item['mecnid']
+        if 'mecnid' in item:
+            engine_code_id = item['mecnid']
+            del item['engine_name']
+            del item['model_family_id']
+            del item['mecnid']
+        else:
+            engine_code_id = self.ALL_MARKER
+            item = {}
         selector = "models.{0}.engines.{1}".format(model_id, engine_id)
         update = "{0}.{1}".format(selector, engine_code_id)
         result = self.collection.update_one(
@@ -78,11 +90,15 @@ class Db(object):
         engine_id = item['engine_name']
         model_id = item['model_family_id']
         engine_code_id = item['mecnid']
-        option_id = item['item_id'] if 'item_id' in item else self.ALL_MARKER
-        del item['engine_name']
-        del item['model_family_id']
-        del item['mecnid']
-        del item['item_id']
+        if 'item_id' in item:
+            option_id = item['item_id']
+            del item['engine_name']
+            del item['model_family_id']
+            del item['mecnid']
+            del item['item_id']
+        else:
+            option_id = self.ALL_MARKER
+            item = {}
 
         selector = "models.{0}.engines.{1}.{2}".format(model_id, engine_id, engine_code_id)
         update = "{0}.options.{1}".format(selector, option_id)
@@ -178,19 +194,17 @@ class Db(object):
                 + '.engines.' + series
                 + '.' + self.ALL_MARKER)
         else:
-            selector_options = ('models.' + model
+            selector = ('models.' + model
                 + '.engines.' + series
-                + '.' + code
-                + '.options')
-            if self.__exists_by_selector(selector_options):
-                selector_options += '.' + self.ALL_MARKER
-                return self.__exists_by_selector(selector_options)
+                + '.' + code)
+            if self.__exists_by_selector(selector + '.options'):
+                selector += '.options.' + self.ALL_MARKER
             else:
-                return self.is_all(model, series)
+                selector += '.works'
 
         return self.__exists_by_selector(selector)
 
-    def is_all_marks(self):
-        coursor = self.collection.find({'link': self.ALL_MARKER})
+    def is_all_mark(self, link):
+        coursor = self.collection.find({'link': link, 'models.' + self.ALL_MARKER: {'$exists': True}})
         return coursor.count() > 0
 

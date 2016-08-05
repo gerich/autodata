@@ -6,7 +6,6 @@ import time
 
 from scrapy import Request, FormRequest
 from scrapy.spiders import Spider, Rule
-# from scrapy.spiders import CrawlSpider as Spider, Rule
 from scrapy.selector import Selector
 from scrapy.exceptions import CloseSpider
 from twisted.internet import reactor, defer
@@ -26,8 +25,8 @@ class WorkingSpider(Spider):
 
     def __init__(self):
         self.db = Db()
-        self.db.collection.delete_many({})
-        self.db.works.delete_many({})
+        # self.db.collection.delete_many({})
+        # self.db.works.delete_many({})
         super(WorkingSpider, self).__init__()
 
     def __prepare_request(self, request):
@@ -36,7 +35,7 @@ class WorkingSpider(Spider):
         request.cookies['ad_web_i_36322E37362E31332E313331'] = '0'
         request.cookies['has_js'] = '1'
         # request.cookies['__qca'] = 'P0-1677323104-1468405118825'
-        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'T5eR4BjfEfcjkOMEwV2zFOk1qaimbkA9vRsvUtg3SEc'
+        request.cookies['SESSd965b47fdd2684807fd560c91c3e21b6'] = 'QSbftB9UPveR3c9x69k3iLn9SDHmLzKfSPrZ73lYDlc'
         request.dont_filter = True
 
     def make_requests_from_url(self, url):
@@ -48,9 +47,7 @@ class WorkingSpider(Spider):
         marks = Selector(response).xpath('//ul[@id="all-manufacturers-list"]/li')
         if not marks:
             raise CloseSpider('Сессионная кука не верна')
-        # marks = [marks[2]] + [marks[5]] + [marks[18]] # @TODO
-        marks = [marks[18]] # @TODO
-
+        
         exists = True
         for mark in marks:
             item = helper.make_mark_item(mark)
@@ -58,7 +55,9 @@ class WorkingSpider(Spider):
             if not exists:
                 self.db.save_mark(item)
                 yield item
-                
+
+            is_all = self.db.is_all_mark(item['link'])
+            if (not is_all or not exists) and item['link'] != 'POR0':
                 request = self.__model_request(item)
                 yield request
                 break
@@ -89,26 +88,33 @@ class WorkingSpider(Spider):
             yield
         
         models = Selector(text=html).xpath('//ul[@id="all-model-ranges-list"]/li')
-        mark_link = response.url.split('/')[-1]
-        # models = models[:10] # @TODO
-        models = models[1:2] # @TODO
+        mark_link = response.request.url.split('/')[-1]
         for model in models:
             model_family_id = model.xpath('@model_family_id').extract()[0]
+            name = model.xpath('a/text()').extract()[0].strip()
+            start_year, end_year, chassi_code = helper.extract_years_and_chassi_code(model)
+            item = ModelItem(name=name, start_year=start_year,
+                    end_year=end_year, model_family_id=model_family_id,
+                    mark_link=mark_link, chassi_code=chassi_code)
             exists = self.db.model_exists(model_family_id)
             if not exists:
-                name = model.xpath('a/text()').extract()[0].strip()
-                start_year, end_year, chassi_code = helper.extract_years_and_chassi_code(model)
-                item = ModelItem(name=name, start_year=start_year,
-                        end_year=end_year, model_family_id=model_family_id,
-                        mark_link=mark_link, chassi_code=chassi_code)
-
                 self.db.save_model(item)
                 yield item
-
+            
+            is_all = self.db.is_all(model_family_id)
+            if not exists or not is_all:
                 request = self.__model_menu_request(mark, item)
+                exists = False
                 yield request
                 break
-    
+
+        if exists:
+            self.db.save_model(ModelItem(mark_link=mark_link))
+            self.log('Переход к новой марке')
+            request = self.make_requests_from_url(self.start_urls[0])
+            request.callback = self.parse
+            yield request
+
     def __model_menu_request(self, mark, model):
         request = FormRequest(
             url = self.start_urls[0],
@@ -131,33 +137,41 @@ class WorkingSpider(Spider):
         )
         self.__prepare_request(request)
         return request
+    
+    def __engines_path(self, mark, model):
+        return ('/v2/engine/select/'
+            + model + '/'
+            + mark + '/'
+            + '?back=/vehicle/component/rt&module=RT')
 
     def going_to_engine_select(self, response):
         mark = response.meta['mark']
         model = response.meta['model']
-        path = ('/v2/engine/select/'
-            + model['model_family_id'] + '/'
-            + mark['link'] + '/'
-            + '?back=/vehicle/component/rt&module=RT')
+        path = self.__engines_path(mark['link'], model['model_family_id'])
         url = 'https://' + self.allowed_domains[0] + path
         time_works_link = Selector(response).xpath('//a[@href="' + path + '"]')
         
         # Если нет данных по этой модели
-        if not time_works_link:
-            yield
-        
-        request = self.make_requests_from_url(url)
+        if time_works_link:
+            request = self.make_requests_from_url(url)
+            request.meta['model'] = model
+            request.callback = self.parse_engine_series
+        else:
+            request = self.make_requests_from_url(self.start_urls[0])
+            request.callback = self.parse
+            self.db.save_engine_series(
+                EngineItem(model_family_id = model['model_family_id'])
+            )
+
         request.meta['mark'] = mark
-        request.meta['model'] = model
-        request.callback = self.parse_engine_series
         yield request
 
     def parse_engine_series(self, response):
         selector = Selector(response)
         engines = selector.xpath('//ul[@id="engine-model-list "]/li/a')
-        engines = engines[0:1] # TODO
         item = None
         for engine in engines:
+            raw_name = engine.xpath('text()').extract()[0].strip()
             engine_item = helper.make_engine_series(engine)
             exists = self.db.engine_series_exists(
                 engine_item['model_family_id'],
@@ -178,10 +192,20 @@ class WorkingSpider(Spider):
 
         if item:
             engine_item = helper.make_engine_series(
-                selector.xpath('//a[text()="{}"]'.format(item['engine_name']))
+                selector
+                    .xpath('//a[normalize-space(text())=normalize-space("{}")]'
+                    .format(raw_name))
             )
             request = self.__engine_codes_request(engine_item)
-            yield request
+        else:
+            self.log('Переход к новой модели')
+            item = helper.make_engine_series(engines[0])
+            del item['engine_name']
+            self.db.save_engine_series(item)
+            request = self.make_requests_from_url(self.start_urls[0])
+            request.callback = self.parse
+
+        yield request
         
     def __engine_codes_request(self, series):
         url = 'https://' + self.allowed_domains[0] + '/v2/engine_code/selection'
@@ -205,13 +229,13 @@ class WorkingSpider(Spider):
         self.__prepare_request(request)
         request.method = 'POST'
         return request
-             
+
     def parse_engine_codes(self, response):
         json_response = json.loads(response.body_as_unicode())
         series = response.meta['series']
         engine_codes = Selector(text=json_response).xpath('//table[@id="engine-code-filtered"]/tbody/tr')
         exists = True
-        for code in engine_codes[0:1]: # TODO
+        for code in engine_codes:
             item, disabled = helper.make_engine_code_item(code, series)
             exists = self.db.engine_code_exists(
                 item['model_family_id'],
@@ -233,7 +257,12 @@ class WorkingSpider(Spider):
                 break
 
         if exists:
-            request = self.make_requests_from_url(self.start_urls[0])
+            url = self.__engines_path(series['link'], series['model_family_id'])
+            url = self.__make_url(url)
+            request = self.make_requests_from_url(url)
+            request.callback = self.parse_engine_series
+            self.db.save_engine_code(EngineCodeItem(series))
+            self.log('Переход к новой серии двигателя')
             yield request
                 
     def __options_request(self, code):
@@ -289,25 +318,12 @@ class WorkingSpider(Spider):
                 if not exists:
                     self.db.save_option(item)
                     yield item
-                    url = '/vehicle/component/repair-times/variant'
-                    url = 'https://' + self.allowed_domains[0] + url
-                    request = FormRequest(
-                        url = url, formdata = {'item_id': item['item_id']}
-                    )
-                    request.headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                    request.headers['Accept'] = '*/*'
-                    request.headers['X-Requested-With'] = 'XMLHttpRequest'
-                    request.method = 'POST'
-                    request.dont_filter = True
-                    request.meta['option'] = item
-                    request.callback = self.going_to_repair_times
-                    self.__prepare_request(request)
-                    yield request
+                    yield self.__repair_times_request_from_options(item)
                     break
 
             if exists: # STOP
-                item = CarOptionItem(enigne)
-                self.save_option(item)
+                item = helper.make_car_option_item(engine)
+                self.db.save_option(item)
         else:
             # страница нормочасов
             group_selectors = selector.xpath('//div[contains(@id,"accordian-section")]')
@@ -319,13 +335,29 @@ class WorkingSpider(Spider):
                 item = response.meta['code']
             self.log('repair times scraped to ' + str(item))
             self.db.save_repair_times(item, repair_times)
-            # TODO!!!!
 
         if exists:
             url = self.__make_url(helper.change_engine_link(selector))
             request = self.make_requests_from_url(url)
+            self.log('Переход к новому коду двигателя')
             request.callback = self.parse_engine_series
             yield request
+
+    def __repair_times_request_from_options(self, item):
+        url = '/vehicle/component/repair-times/variant'
+        url = 'https://' + self.allowed_domains[0] + url
+        request = FormRequest(
+            url = url, formdata = {'item_id': item['item_id']}
+        )
+        request.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        request.headers['Accept'] = '*/*'
+        request.headers['X-Requested-With'] = 'XMLHttpRequest'
+        request.method = 'POST'
+        request.dont_filter = True
+        request.meta['option'] = item
+        request.callback = self.going_to_repair_times
+        self.__prepare_request(request)
+        return request
 
     def going_to_repair_times(self, response):
         json_response = json.loads(response.body_as_unicode())

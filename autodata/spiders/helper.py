@@ -1,5 +1,7 @@
 import pdb
 
+import re
+
 from autodata.items import (MarkItem, ModelItem, EngineItem, EngineCodeItem,
     CarComponentItem, CarOptionItem, WorkGroupItem, WorkItem)
 
@@ -10,6 +12,7 @@ def extract_years_and_chassi_code(model):
         return start_year, end_year, chassi_code
 
     years = years[0].strip()
+    years = years.replace(')(', ') (')
     years = years.replace(')', '').replace('(', '')
     start_year = years
     without_space = (start_year.find(' ') == -1)
@@ -22,10 +25,18 @@ def extract_years_and_chassi_code(model):
     # Для FROD
     elif without_space and start_year.find("'") >= 0:
         start_year = start_year.replace("'", '').split('/')[-1]
-        return None, int(start_year), ''
+        return int(start_year), None, ''
     # Только серия
     elif without_space:
         return None, None, start_year
+    
+    # для Toyot'ы без указания годов выпуска
+    if len(years) == years.find('Series') + len('Series'):
+        return None, None, years
+
+    # 255000007, Double Six (XJ 81) (93-94)
+    if years.count(' ') > 1:
+        years = years.replace(' ', '', 1)
     
     chassi_code, start_year = years.split(' ')
     if not without_dash:
@@ -47,9 +58,14 @@ def make_engine_code_item(code, engine_item):
     
     item = EngineCodeItem(engine_item)
     item['code'] = code.xpath('td[1]/text()').extract()[0].strip()
-    item['power_kw'] = int(code.xpath('td[2]/text()')
-        .extract()[0].strip().split(' ')[0])
+    item['power_kw'] = code.xpath('td[2]/text()').extract()[0].strip()
+    if item['power_kw'].find(' ') != -1:
+        item['power_kw'] = int(item['power_kw'].split(' ')[0])
+    else:
+        del item['power_kw']
     item['power'] = code.xpath('td[3]/text()').extract()[0].strip()
+    if not item['power'] or not re.search('(\d+)*(\d+)', item['power']):
+        del item['power']
     param = code.xpath('td[4]/text()').extract()[0].strip()
     if param:
         item['param'] = param
@@ -84,12 +100,12 @@ def make_repair_times(selector):
 
 def change_engine_link(selector):
     link = selector.xpath(
-        '//ul[@id="jobfolderheader"]/li/div/a[contains(@class, "ctaSmall")]/@href'
+        '//ul[@id="jobfolderheader"]/li/div/a/@href'
     ).extract()[0]
     return link
 
 def make_engine_series(engine):
-    return EngineItem(
+    item =  EngineItem(
         engine_name = engine.xpath('text()').extract()[0].strip(),
         model_family_id = engine.xpath('@body').extract()[0].strip(),
         text = engine.xpath('@freetext').extract()[0].strip(),
@@ -98,6 +114,10 @@ def make_engine_series(engine):
         link = engine.xpath('@manufacturer').extract()[0],
         litres = engine.xpath('@litres').extract()[0]
     )
+    raw_name = item['engine_name']
+    item['engine_name'] = item['engine_name'].replace('.', '')
+
+    return item
 
 def make_car_option_item(engine, id = None, name = None):
     item = CarOptionItem(
