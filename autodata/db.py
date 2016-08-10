@@ -208,3 +208,11 @@ class Db(object):
         coursor = self.collection.find({'link': link, 'models.' + self.ALL_MARKER: {'$exists': True}})
         return coursor.count() > 0
 
+    def save_first_level_node(self, node):
+        pass
+
+    def save_node(self, node):
+        pass
+    
+    def save_to_services(self, node):
+        pass

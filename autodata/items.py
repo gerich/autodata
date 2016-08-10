@@ -64,3 +64,8 @@ class SubWorkItem(Item):
     name = Field()
     type = Field()
 
+class FistLevelNode(Item):
+    name = Field()
+
+class Node(Item):
+    name = Field()
